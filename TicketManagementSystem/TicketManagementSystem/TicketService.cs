@@ -1,133 +1,121 @@
 ﻿using System;
-using System.Configuration;
 using System.IO;
 using System.Text.Json;
 using EmailService;
+using TicketManagementSystem.Exceptions;
+using TicketManagementSystem.Models;
+using TicketManagementSystem.Repositories;
 
 namespace TicketManagementSystem
 {
     public class TicketService
     {
+        private IUserRepository _userRepository;
+        private IEmailService _emailService;
+
+        // TODO
+        // Remove this constructor when real dep injection can be set up
+        // Not possible without changing Program.cs
+        public TicketService()
+        : this(new UserRepository(), new EmailServiceProxy())
+        {
+        }
+
+        public TicketService(IUserRepository userRepository, IEmailService emailService)
+        {
+            _userRepository = userRepository;
+            _emailService = emailService;
+        }
+
         public int CreateTicket(string t, Priority p, string assignedTo, string desc, DateTime d, bool isPayingCustomer)
         {
-            // Check if t or desc are null or if they are invalid and throw exception
-            if (t == null || desc == null || t == "" || desc == "")
+            // Validate input parameters
+            if (String.IsNullOrEmpty(t) || String.IsNullOrEmpty(desc))
             {
                 throw new InvalidTicketException("Title or description were null");
             }
 
-            User user = null;
-            using (var ur = new UserRepository())
+            var priority = AdjustTicketPriority(t, p, d);
+            if (priority == Priority.High)
             {
-                if (assignedTo != null)
-                {
-                    user = ur.GetUser(assignedTo);
-                }
-            }
-
-            if (user == null)
-            {
-                throw new UnknownUserException("User " + assignedTo + " not found");
-            }
-
-            var priorityRaised = false;
-            if (d < DateTime.UtcNow - TimeSpan.FromHours(1))
-            {
-                if (p == Priority.Low)
-                {
-                    p = Priority.Medium;
-                    priorityRaised = true;
-                }
-                else if (p == Priority.Medium)
-                {
-                    p = Priority.High;
-                    priorityRaised = true;
-                }
-            }
-
-            if ((t.Contains("Crash") || t.Contains("Important") || t.Contains("Failure")) && !priorityRaised)
-            {
-                if (p == Priority.Low)
-                {
-                    p = Priority.Medium;
-                }
-                else if (p == Priority.Medium)
-                {
-                    p = Priority.High;
-                }
-            }
-
-            if (p == Priority.High)
-            {
-                var emailService = new EmailServiceProxy();
-                emailService.SendEmailToAdministrator(t, assignedTo);
-            }
-
-            double price = 0;
-            User accountManager = null;
-            if (isPayingCustomer)
-            {
-                // Only paid customers have an account manager.
-                accountManager = new UserRepository().GetAccountManager();
-                if (p == Priority.High)
-                {
-                    price = 100;
-                }
-                else
-                {
-                    price = 50;
-                }
+                _emailService.SendEmailToAdministrator(t, assignedTo);
             }
 
             var ticket = new Ticket()
             {
                 Title = t,
-                AssignedUser = user,
-                Priority = p,
+                AssignedUser = GetUser(assignedTo),
+                Priority = priority,
                 Description = desc,
                 Created = d,
-                PriceDollars = price,
-                AccountManager = accountManager
+                PriceDollars = isPayingCustomer ? GetTicketPrice(priority) : 0,
+                AccountManager = isPayingCustomer ? _userRepository.GetAccountManager() : null
             };
 
-            var id = TicketRepository.CreateTicket(ticket);
+            return TicketRepository.CreateTicket(ticket);
+        }
 
-            // Return the id
-            return id;
+        private Priority AdjustTicketPriority(string title, Priority priority, DateTime timestamp)
+        {
+            var titleContainsKeywords = 
+                    title.Contains("Crash") || 
+                    title.Contains("Important") || 
+                    title.Contains("Failure");
+
+            var isOlderThanOneHour = timestamp < DateTime.UtcNow - TimeSpan.FromHours(1);
+            if (isOlderThanOneHour || titleContainsKeywords)
+            {
+                switch (priority)
+                {
+                    case Priority.Low:
+                        priority = Priority.Medium;
+                        break;
+                    case Priority.Medium:
+                        priority = Priority.High;
+                        break;
+                }
+            }
+
+            return priority;
+        }
+
+        private double GetTicketPrice(Priority priority)
+        {
+            switch (priority)
+            {
+                case Priority.High:
+                    return 100;
+                default:
+                    return 50;
+            }
         }
 
         public void AssignTicket(int id, string username)
         {
-            User user = null;
-            using (var ur = new UserRepository())
+            if (string.IsNullOrEmpty(username))
             {
-                if (username != null)
-                {
-                    user = ur.GetUser(username);
-                }
-            }
-
-            if (user == null)
-            {
-                throw new UnknownUserException("User not found");
+                throw new ArgumentException("Username cannot be null or empty");
             }
 
             var ticket = TicketRepository.GetTicket(id);
-
             if (ticket == null)
             {
                 throw new ApplicationException("No ticket found for id " + id);
             }
 
-            ticket.AssignedUser = user;
-
+            ticket.AssignedUser = GetUser(username);
             TicketRepository.UpdateTicket(ticket);
         }
 
-        private void WriteTicketToFile(Ticket ticket)
+        private User GetUser(string username)
         {
-            var ticketJson = JsonSerializer.Serialize(ticket);
-            File.WriteAllText(Path.Combine(Path.GetTempPath(), $"ticket_{ticket.Id}.json"), ticketJson);
+            User user = _userRepository.GetUser(username);
+            if (user == null)
+            {
+                throw new UnknownUserException("User not found");
+            }
+
+            return user;
         }
     }
 

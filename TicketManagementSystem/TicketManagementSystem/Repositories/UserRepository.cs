@@ -1,9 +1,10 @@
 ﻿using System;
 using System.Data.SqlClient;
+using TicketManagementSystem.Models;
 
-namespace TicketManagementSystem
+namespace TicketManagementSystem.Repositories
 {
-    public class UserRepository : IDisposable
+    public class UserRepository : IUserRepository
     {
         private SqlConnection connection;
         

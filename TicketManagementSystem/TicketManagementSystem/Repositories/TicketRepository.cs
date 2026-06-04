@@ -1,8 +1,10 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
+using TicketManagementSystem.Models;
 
 namespace TicketManagementSystem
 {
+    // MUST remain static - Can't extend an interface and dep inject it :(
     public static class TicketRepository
     {
         private static readonly List<Ticket> Tickets = new List<Ticket>();
