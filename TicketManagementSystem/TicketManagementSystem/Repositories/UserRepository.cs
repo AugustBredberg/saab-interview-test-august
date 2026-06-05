@@ -4,16 +4,10 @@ using TicketManagementSystem.Models;
 
 namespace TicketManagementSystem.Repositories
 {
-    public class UserRepository : IUserRepository
+    public class UserRepository(string connectionString) : IUserRepository
     {
-        private SqlConnection connection;
-        
-        public UserRepository()
-        {
-            var connectionString = System.Configuration.ConfigurationManager.ConnectionStrings["database"].ConnectionString; 
-            connection = new SqlConnection(connectionString);
-        }
-        
+        private readonly SqlConnection connection = new(connectionString);
+
         public User GetUser(string username)
         {
             // Assume this method does not need to change and is connected to a database with users populated.

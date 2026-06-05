@@ -1,114 +1,72 @@
 ﻿using System;
-using System.IO;
-using System.Text.Json;
 using EmailService;
 using TicketManagementSystem.Exceptions;
+using TicketManagementSystem.Helpers;
 using TicketManagementSystem.Models;
 using TicketManagementSystem.Repositories;
 
 namespace TicketManagementSystem
 {
-    public class TicketService
+    public class TicketService(IUserRepository userRepository, IEmailService emailService)
     {
-        private IUserRepository _userRepository;
-        private IEmailService _emailService;
+        private IUserRepository _userRepository = userRepository;
+        private IEmailService _emailService = emailService;
 
         // TODO
         // Remove this constructor when real dep injection can be set up
         // Not possible without changing Program.cs
         public TicketService()
-        : this(new UserRepository(), new EmailServiceProxy())
+        : this(new UserRepository(System.Configuration.ConfigurationManager.ConnectionStrings["database"].ConnectionString), new EmailServiceProxy())
         {
         }
 
-        public TicketService(IUserRepository userRepository, IEmailService emailService)
+        public int CreateTicket(string title, Priority priority, string assignedTo, string desc, DateTime timestamp, bool isPayingCustomer)
         {
-            _userRepository = userRepository;
-            _emailService = emailService;
-        }
-
-        public int CreateTicket(string t, Priority p, string assignedTo, string desc, DateTime d, bool isPayingCustomer)
-        {
-            // Validate input parameters
-            if (String.IsNullOrEmpty(t) || String.IsNullOrEmpty(desc))
+            if (String.IsNullOrEmpty(title) || String.IsNullOrEmpty(desc))
             {
                 throw new InvalidTicketException("Title or description were null");
             }
 
-            var priority = AdjustTicketPriority(t, p, d);
+            priority = TicketHelpers.AdjustTicketPriority(title, priority, timestamp);
             if (priority == Priority.High)
             {
-                _emailService.SendEmailToAdministrator(t, assignedTo);
+                _emailService.SendEmailToAdministrator(title, assignedTo);
             }
 
             var ticket = new Ticket()
             {
-                Title = t,
+                Title = title,
                 AssignedUser = GetUser(assignedTo),
                 Priority = priority,
                 Description = desc,
-                Created = d,
-                PriceDollars = isPayingCustomer ? GetTicketPrice(priority) : 0,
+                Created = timestamp,
+                PriceDollars = isPayingCustomer ? TicketHelpers.GetTicketPrice(priority) : 0,
                 AccountManager = isPayingCustomer ? _userRepository.GetAccountManager() : null
             };
 
             return TicketRepository.CreateTicket(ticket);
         }
 
-        private Priority AdjustTicketPriority(string title, Priority priority, DateTime timestamp)
-        {
-            var titleContainsKeywords = 
-                    title.Contains("Crash") || 
-                    title.Contains("Important") || 
-                    title.Contains("Failure");
-
-            var isOlderThanOneHour = timestamp < DateTime.UtcNow - TimeSpan.FromHours(1);
-            if (isOlderThanOneHour || titleContainsKeywords)
-            {
-                switch (priority)
-                {
-                    case Priority.Low:
-                        priority = Priority.Medium;
-                        break;
-                    case Priority.Medium:
-                        priority = Priority.High;
-                        break;
-                }
-            }
-
-            return priority;
-        }
-
-        private double GetTicketPrice(Priority priority)
-        {
-            switch (priority)
-            {
-                case Priority.High:
-                    return 100;
-                default:
-                    return 50;
-            }
-        }
-
         public void AssignTicket(int id, string username)
+        {
+            var user = GetUser(username);
+            var ticket = TicketRepository.GetTicket(id);
+            if (ticket == null)
+            {
+                throw new ApplicationException("No ticket found for id " + id);
+            }
+            ticket.AssignedUser = user;
+
+            TicketRepository.UpdateTicket(ticket);
+        }
+
+        private User GetUser(string username)
         {
             if (string.IsNullOrEmpty(username))
             {
                 throw new ArgumentException("Username cannot be null or empty");
             }
 
-            var ticket = TicketRepository.GetTicket(id);
-            if (ticket == null)
-            {
-                throw new ApplicationException("No ticket found for id " + id);
-            }
-
-            ticket.AssignedUser = GetUser(username);
-            TicketRepository.UpdateTicket(ticket);
-        }
-
-        private User GetUser(string username)
-        {
             User user = _userRepository.GetUser(username);
             if (user == null)
             {

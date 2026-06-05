@@ -2,12 +2,12 @@
 using System.Linq;
 using TicketManagementSystem.Models;
 
-namespace TicketManagementSystem
+namespace TicketManagementSystem.Repositories
 {
-    // MUST remain static - Can't extend an interface and dep inject it :(
+    // MUST remain static - Can't extend an interface
     public static class TicketRepository
     {
-        private static readonly List<Ticket> Tickets = new List<Ticket>();
+        private static readonly List<Ticket> Tickets = [];
 
         public static int CreateTicket(Ticket ticket)
         {
